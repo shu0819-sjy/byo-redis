@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "byo-redis"
+version = "0.1.0"
+description = "Build-Your-Own-Redis: industrial-grade Redis subset in Python asyncio"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "BYO-Redis Contributors" }]
+keywords = ["redis", "asyncio", "resp", "rdb", "aof", "replication"]
+dependencies = []
+
+# After GitHub repo creation, add [project.urls] Homepage / Documentation / Issues.
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+byo-redis = "byo_redis.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["byo_redis*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
