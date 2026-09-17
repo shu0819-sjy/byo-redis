@@ -3,7 +3,7 @@
 | 字段 | 值 |
 |------|----|
 | 产品名 | BYO-Redis（Build-Your-Own-Redis） |
-| 版本目标 | v0.1.0（可发布工业级子集） |
+| 版本目标 | v0.2.2（加固的可发布 Redis 子集） |
 | 技术栈 | Python 3.11+ / `asyncio` / `asyncio.start_server` / 字节流 RESP 解析 |
 | 协议 | RESP2（与 `redis-cli` 兼容） |
 | 文档语言 | 中文为主，关键术语保留英文 |
@@ -130,13 +130,13 @@
 | F-AOF-03 | fsync 策略 | 至少支持 `always` / `everysec` / `no` 之一；默认 `everysec` |
 | F-AOF-04 | 记录范围 | 记录变更类命令：`SET`/`EXPIRE`/`LPUSH`/`RPOP`/`HSET`/`DEL`（若实现）等；不记录纯读命令 |
 | F-AOF-05 | 损坏处理 | 尾部截断/半条命令：启动时跳过损坏尾部或报错退出（需在日志明确）；不得静默加载错误状态 |
-| F-AOF-06 | Rewrite（可选） | v0.1 可不实现 AOF rewrite；若未实现，文档说明膨胀风险 |
+| F-AOF-06 | Rewrite | `BGREWRITEAOF` 压缩当前键空间并原子替换旧文件 |
 
 推荐默认路径：`./data/appendonly.aof`。
 
 **启动加载优先级（必须写死在配置契约中）**：
 
-1. 若 `aof_enabled=true` 且 AOF 文件非空 → 重放 AOF（可忽略同目录旧 RDB，或先载 RDB 再仅重放 AOF 增量——v0.1 选择其一并文档化；**推荐：AOF-only 当 AOF 开启**）
+1. 若 `aof_enabled=true` 且 AOF 文件非空 → 仅重放 AOF，并拒绝中段协议损坏
 2. 否则若 RDB 存在 → 加载 RDB
 3. 否则空库启动
 
@@ -152,7 +152,7 @@
 | F-REPL-06 | 只读 Replica | Replica 默认拒绝用户写命令（返回 `-READONLY ...`），但接受来自 Master 的复制流写入 |
 | F-REPL-07 | INFO role | `INFO replication`（或 `INFO`）中可观察到 `role:master` / `role:slave` |
 
-v0.1 **不要求**：部分重同步（psync2 backlog）、磁盘less、多级链式复制、故障自动升主、Sentinel/Cluster。
+v0.2.2 **不要求**：部分重同步（psync2 backlog）、磁盘less、多级链式复制、故障自动升主、Sentinel/Cluster。
 
 ---
 
@@ -275,6 +275,15 @@ v0.1 **不要求**：部分重同步（psync2 backlog）、磁盘less、多级�
 | `log_level` | enum | `info` | debug/info/warning/error |
 | `rdb_save_seconds` | int | `0` | `>0` 时周期性 SAVE；`0` 关闭 |
 | `proto_max_bulk_len` | int | `16_777_216` | bulk 上限 |
+| `proto_max_array_len` | int | `1_024` | 单个 RESP 数组元素数量上限 |
+| `max_array_depth` | int | `16` | RESP 数组嵌套深度上限 |
+| `max_buffer_bytes` | int | `32_000_000` | 单连接未解析输入缓冲上限 |
+| `client_idle_timeout_sec` | float | `300` | 空闲连接关闭时间 |
+| `max_clients` | int | `1_000` | 同时连接数量上限 |
+| `max_auth_failures` | int | `5` | 单连接连续认证失败上限 |
+| `persistence_max_load_bytes` | int | `1_073_741_824` | RDB/AOF 启动加载与全量同步大小上限 |
+| `maxmemory_bytes` | int | `0` | 近似键空间内存上限；`0` 关闭 |
+| `maxmemory_policy` | enum | `noeviction` | `noeviction`/`allkeys-lru`/`volatile-ttl` |
 
 配置校验失败时进程以非零退出码退出并打印可读错误。
 
@@ -332,7 +341,7 @@ v0.1 **不要求**：部分重同步（psync2 backlog）、磁盘less、多级�
 2. ACCEPTANCE.md 中的硬性验收项全部通过；
 3. 仓库具备发布所需的最小工程化材料（由后续任务完成）；
 
-则视为 BYO-Redis v0.1 需求目标达成。
+则视为 BYO-Redis v0.2.2 需求目标达成。
 
 ---
 

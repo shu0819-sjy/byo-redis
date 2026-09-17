@@ -52,7 +52,7 @@
 写命令成功路径（概念）：
 
 1. Handler 调用 `storage` 变更
-2. 若成功且为写命令 → `aof.append(argv)`
+2. 若成功且为写命令 → `await aof.append(argv)`；`always` 在回复前完成 fsync，失败返回 `MISCONF`
 3. 若角色为 master → `replication.propagate(argv)`
 4. 编码 RESP 回复写回客户端
 
@@ -312,7 +312,7 @@ Replica                         Master
 | 协议半包 | 继续等待 |
 | 协议非法 | 日志 + 关闭连接 |
 | 命令参数错误 | RESP Error，连接保持 |
-| AOF 磁盘满 | 日志 error；可选只读模式（v0.1 可仅失败日志 + 命令仍改内存，但验收需演示正常路径） |
+| AOF 磁盘满 | 返回 `MISCONF`，AOF 标记不健康，后续写入不再伪成功 |
 | RDB 加载损坏 | 启动失败（非零退出）或跳过并警告（默认：**失败退出**更安全） |
 | 复制断开 | Replica 指数退避重连；Master 移除死连接 |
 | 处理中异常 | 捕获、日志、对客户端 `-ERR internal error`（避免堆栈泄漏） |

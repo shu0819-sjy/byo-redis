@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 def encode_simple_string(value: str | bytes) -> bytes:
     if isinstance(value, str):
@@ -36,7 +34,7 @@ def encode_null_bulk() -> bytes:
     return b"$-1\r\n"
 
 
-def encode_array(items: list[Any] | None) -> bytes:
+def encode_array(items: list[object] | None) -> bytes:
     if items is None:
         return b"*-1\r\n"
     parts = [f"*{len(items)}\r\n".encode("ascii")]
@@ -45,7 +43,7 @@ def encode_array(items: list[Any] | None) -> bytes:
     return b"".join(parts)
 
 
-def encode_value(value: Any) -> bytes:
+def encode_value(value: object) -> bytes:
     """Encode a Python value into RESP bytes.
 
     Supported:

@@ -29,7 +29,8 @@ def test_hset_hgetall() -> None:
     assert cmd_hset(ctx) == 0
     ctx.argv = [b"HGETALL", b"h"]
     flat = cmd_hgetall(ctx)
-    mapping = dict(zip(flat[0::2], flat[1::2]))
+    assert isinstance(flat, list)
+    mapping = dict(zip(flat[0::2], flat[1::2], strict=True))
     assert mapping == {b"f1": b"v2"}
 
 

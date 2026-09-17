@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|----|
-| 产品 | BYO-Redis v0.1 |
+| 产品 | BYO-Redis v0.2.2 |
 | 依据 | `REQUIREMENTS.md` / `ARCHITECTURE.md` |
 | 用途 | 实现自检、QA 验证、Review 放行依据 |
 
@@ -171,7 +171,7 @@ RPOP mylist  → null
 | M2 | May | AOF rewrite |
 | M3 | May | 与官方 Redis 生成的 RDB 互通 |
 
-Should 未通过不单独否决 v0.1，但 Reviewer 可据此要求补强（工业级观感）。
+Should 未通过不单独否决 v0.2.2，但 Reviewer 可据此要求补强。
 
 ---
 

@@ -1,4 +1,4 @@
-# Release checklist (v0.1 → GitHub)
+# Release checklist (v0.2.2 → GitHub)
 
 Use this before the first public push. **Do not force-push** and do not create a remote until the owner confirms repository name and visibility.
 
@@ -7,22 +7,24 @@ Use this before the first public push. **Do not force-push** and do not create a
 | Gate | Status | Evidence |
 |------|--------|----------|
 | Requirements (t1) | PASS | `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/ACCEPTANCE.md` |
-| Implementation + repairs (t2/t6/t8/t10) | PASS | `byo_redis/`, pytest 38 |
-| Verification (t3) | PASS | `docs/VERIFICATION_REPORT.md` |
-| Review r4 (t11) | PASS | FULLRESYNC flush-until-empty; no high/blocker findings |
+| Implementation + hardening | PASS | `byo_redis/`, pytest 68 |
+| Verification | PASS | `docs/VERIFICATION_REPORT.md` (2026-09-17) |
+| Reliability review | PASS | AOF durability, bounded queues, write-barrier FULLRESYNC, AUTH |
 
 ## Pre-publish hygiene
 
-- [ ] Working tree clean of secrets / credentials / personal tokens (none expected in v0.1)
+- [ ] Working tree clean of secrets / credentials / personal tokens
 - [ ] Runtime dirs ignored: `data/`, `*.rdb`, `*.aof`, `.venv/`, `__pycache__/`, `.pytest_cache/`
 - [ ] `LICENSE` present (MIT)
 - [ ] `README.md` covers install, start, client examples, RDB/AOF, replication, tests, known limits
-- [ ] `pyproject.toml` version matches package (`0.1.0`)
+- [ ] `pyproject.toml` version matches package (`0.2.2`)
 - [ ] Local sanity:
   ```bash
   cd byo-redis
   python -m compileall -q byo_redis
   python -m pytest -q
+  python -m ruff check byo_redis tests
+  python -m mypy byo_redis
   ```
 - [ ] Optional E2E: `python docs/_qa_e2e_verify.py`
 
@@ -52,7 +54,7 @@ git add LICENSE README.md pyproject.toml .gitignore \
 git status   # review: no data/, no .venv/, no secrets
 
 # 3) First commit
-git commit -m "chore: release BYO-Redis v0.1.0 (asyncio Redis subset)"
+git commit -m "chore: release BYO-Redis v0.2.2 hardening"
 
 # 4) Create remote (GitHub CLI example — replace OWNER/REPO after confirmation)
 # gh repo create OWNER/byo-redis --public --source=. --remote=origin --push
@@ -65,9 +67,9 @@ git commit -m "chore: release BYO-Redis v0.1.0 (asyncio Redis subset)"
 ### Tagging a release (optional)
 
 ```bash
-git tag -a v0.1.0 -m "BYO-Redis v0.1.0"
-git push origin v0.1.0
-# gh release create v0.1.0 --title "v0.1.0" --notes-file docs/VERIFICATION_REPORT.md
+git tag -a v0.2.2 -m "BYO-Redis v0.2.2"
+git push origin v0.2.2
+# gh release create v0.2.2 --title "v0.2.2" --notes-file docs/VERIFICATION_REPORT.md
 ```
 
 ## What not to push

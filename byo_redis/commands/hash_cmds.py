@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from byo_redis.storage.store import WrongTypeError
 
 from .base import CommandContext, RespError, wrong_arity, wrongtype
 
 
-def cmd_hset(ctx: CommandContext) -> Any:
+def cmd_hset(ctx: CommandContext) -> object:
     # HSET key field value [field value ...]
     argc = len(ctx.argv)
     if argc < 4 or (argc % 2) != 0:
@@ -28,7 +26,7 @@ def cmd_hset(ctx: CommandContext) -> Any:
         raise wrongtype() from exc
 
 
-def cmd_hgetall(ctx: CommandContext) -> Any:
+def cmd_hgetall(ctx: CommandContext) -> object:
     if len(ctx.argv) != 2:
         raise wrong_arity("hgetall")
     try:

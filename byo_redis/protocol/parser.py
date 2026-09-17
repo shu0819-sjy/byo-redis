@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class ProtocolError(Exception):
     """Raised when the byte stream violates RESP framing rules."""
@@ -23,12 +21,16 @@ class RespParser:
         self,
         max_bulk_len: int = 16_777_216,
         max_buffer_bytes: int = 32_000_000,
+        max_array_len: int = 1_024,
+        max_array_depth: int = 64,
     ) -> None:
         self._buf = bytearray()
         self._max_bulk_len = max_bulk_len
         self.max_buffer_bytes = max_buffer_bytes
+        self._max_array_len = max_array_len
+        self._max_array_depth = max_array_depth
 
-    def feed(self, data: bytes) -> list[Any]:
+    def feed(self, data: bytes) -> list[object]:
         if data:
             if len(self._buf) + len(data) > self.max_buffer_bytes:
                 raise ProtocolError(
@@ -40,9 +42,9 @@ class RespParser:
             raise ProtocolError(
                 f"input buffer exceeds max_buffer_bytes ({self.max_buffer_bytes})"
             )
-        messages: list[Any] = []
+        messages: list[object] = []
         while True:
-            value, consumed = self._try_parse(0)
+            value, consumed = self._try_parse(0, depth=0)
             if consumed == 0:
                 break
             del self._buf[:consumed]
@@ -56,7 +58,7 @@ class RespParser:
     def buffered_size(self) -> int:
         return len(self._buf)
 
-    def _try_parse(self, start: int) -> tuple[Any, int]:
+    def _try_parse(self, start: int, *, depth: int) -> tuple[object, int]:
         if start >= len(self._buf):
             return None, 0
         prefix = self._buf[start]
@@ -78,17 +80,17 @@ class RespParser:
         if prefix == ord("$"):
             return self._parse_bulk(start)
         if prefix == ord("*"):
-            return self._parse_array(start)
+            return self._parse_array(start, depth=depth)
         raise ProtocolError(f"invalid RESP type prefix: {chr(prefix)!r}")
 
-    def _parse_line_value(self, start: int, *, simple: bool) -> tuple[Any, int]:
+    def _parse_line_value(self, start: int, *, simple: bool) -> tuple[object, int]:
         line, end = self._read_line(start + 1)
         if end == 0:
             return None, 0
         text = line.decode("utf-8", errors="replace")
         return text, end
 
-    def _parse_bulk(self, start: int) -> tuple[Any, int]:
+    def _parse_bulk(self, start: int) -> tuple[object, int]:
         line, hdr_end = self._read_line(start + 1)
         if hdr_end == 0:
             return None, 0
@@ -111,7 +113,11 @@ class RespParser:
             raise ProtocolError("bulk string missing CRLF trailer")
         return data, total_needed
 
-    def _parse_array(self, start: int) -> tuple[Any, int]:
+    def _parse_array(self, start: int, *, depth: int) -> tuple[object, int]:
+        if depth >= self._max_array_depth:
+            raise ProtocolError(
+                f"array nesting exceeds limit ({self._max_array_depth})"
+            )
         line, hdr_end = self._read_line(start + 1)
         if hdr_end == 0:
             return None, 0
@@ -123,12 +129,12 @@ class RespParser:
             return None, hdr_end
         if count < -1:
             raise ProtocolError(f"invalid array length: {count}")
-        if count > 1_000_000:
+        if count > self._max_array_len:
             raise ProtocolError(f"array length {count} exceeds limit")
-        items: list[Any] = []
+        items: list[object] = []
         cursor = hdr_end
         for _ in range(count):
-            item, end = self._try_parse(cursor)
+            item, end = self._try_parse(cursor, depth=depth + 1)
             if end == 0:
                 return None, 0
             items.append(item)

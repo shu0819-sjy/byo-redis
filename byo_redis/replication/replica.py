@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from byo_redis.persistence.rdb import load_rdb_bytes
 from byo_redis.protocol.encoder import encode_command
@@ -26,6 +26,8 @@ class ReplicaClient:
         *,
         listening_port: int = 0,
         max_bulk_len: int = 16_777_216,
+        snapshot_max_bytes: int = 1024 * 1024 * 1024,
+        masterauth: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -33,6 +35,8 @@ class ReplicaClient:
         self.apply_command = apply_command
         self.listening_port = listening_port
         self.max_bulk_len = max_bulk_len
+        self.snapshot_max_bytes = snapshot_max_bytes
+        self.masterauth = masterauth
         self.link_status = "down"
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -73,7 +77,7 @@ class ReplicaClient:
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=backoff)
                     return
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     backoff = min(backoff * 2, 10.0)
 
     async def _session(self) -> None:
@@ -112,6 +116,12 @@ class ReplicaClient:
                         raise ProtocolError("unexpected extra handshake messages")
                     return msgs[0]
 
+        if self.masterauth is not None:
+            await send_cmd(b"AUTH", self.masterauth.encode("utf-8"))
+            auth_reply = await read_one()
+            if auth_reply != "OK" and auth_reply != b"OK":
+                raise ProtocolError(f"unexpected AUTH reply: {auth_reply!r}")
+
         await send_cmd(b"PING")
         pong = await read_one()
         if pong != "PONG" and pong != b"PONG":
@@ -138,7 +148,9 @@ class ReplicaClient:
         logger.info("Master replied %s", full)
 
         rdb = await self._read_rdb_bulk(reader, parser)
-        entries = load_rdb_bytes(rdb)
+        entries = load_rdb_bytes(
+            rdb, max_file_bytes=self.snapshot_max_bytes
+        )
         self.store.load_entries(entries)
         self.link_status = "up"
         logger.info("FULLRESYNC complete: loaded %d keys from master", len(entries))
@@ -174,6 +186,11 @@ class ReplicaClient:
             raise ProtocolError(f"bad RDB bulk length {header!r}") from exc
         if length < 0:
             raise ProtocolError("null RDB not allowed")
+        if length > self.snapshot_max_bytes:
+            raise ProtocolError(
+                f"RDB bulk length {length} exceeds snapshot limit "
+                f"{self.snapshot_max_bytes}"
+            )
         start = idx + 2
         await ensure(start + length)
         rdb = bytes(buf[start : start + length])

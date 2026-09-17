@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
 
 from . import (
     connection_cmds,
@@ -33,7 +32,7 @@ class CommandRegistry:
     def get(self, name: bytes) -> CommandHandler | None:
         return self._handlers.get(name.upper())
 
-    async def dispatch(self, ctx: CommandContext) -> Any:
+    async def dispatch(self, ctx: CommandContext) -> object:
         if not ctx.argv:
             raise RespError("ERR empty command")
         name = ctx.argv[0]
@@ -66,6 +65,7 @@ def create_default_registry() -> CommandRegistry:
     reg.register("ECHO", connection_cmds.cmd_echo)
     reg.register("SELECT", connection_cmds.cmd_select)
     reg.register("COMMAND", connection_cmds.cmd_command)
+    reg.register("AUTH", connection_cmds.cmd_auth)
 
     reg.register("SET", string_cmds.cmd_set)
     reg.register("GET", string_cmds.cmd_get)
@@ -81,6 +81,7 @@ def create_default_registry() -> CommandRegistry:
     reg.register("INFO", server_cmds.cmd_info)
     reg.register("SAVE", server_cmds.cmd_save)
     reg.register("BGSAVE", server_cmds.cmd_bgsave)
+    reg.register("BGREWRITEAOF", server_cmds.cmd_bgrewriteaof)
     reg.register("CONFIG", server_cmds.cmd_config)
     reg.register("DEL", server_cmds.cmd_del)
     reg.register("DBSIZE", server_cmds.cmd_dbsize)

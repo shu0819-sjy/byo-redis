@@ -1,10 +1,10 @@
 # BYO-Redis
 
-Build-Your-Own-Redis: an industrial-grade Redis protocol subset implemented with **Python asyncio**.
+Build-Your-Own-Redis: a hardened, educational Redis protocol subset implemented with **Python asyncio**.
 
 Compatible with `redis-cli` for the supported command set. Designed for correctness, clear module boundaries, persistence demos, and master/replica replication.
 
-## Features (v0.1)
+## Features (v0.2.2)
 
 | Area | Commands / capability |
 |------|------------------------|
@@ -12,9 +12,10 @@ Compatible with `redis-cli` for the supported command set. Designed for correctn
 | String | `SET` / `GET` / `EXPIRE` / `TTL` |
 | List | `LPUSH` / `RPOP` |
 | Hash | `HSET` / `HGETALL` |
-| Persistence | RDB snapshot (`SAVE` / `BGSAVE`) + AOF append/replay |
+| Persistence | Checksummed RDB snapshot (`SAVE` / `BGSAVE`) + AOF append/replay/rewrite |
 | Replication | Master → replica full sync (`PSYNC`) + write propagation |
 | Ops | `PING` `ECHO` `INFO` `CONFIG GET` `DEL` `DBSIZE` `SELECT 0` |
+| Security | `AUTH`, protected non-loopback binding, bounded client/protocol queues |
 
 > **RDB note:** snapshots use a documented **BYOR** binary format (`magic=BYOR`), not the official Redis RDB wire format. Recovery is self-consistent within BYO-Redis.
 
@@ -66,6 +67,19 @@ redis-cli -p 6379 HGETALL user:1
 
 Without `redis-cli`, any RESP2 client (or the in-repo test helper) works the same over TCP.
 
+### Authentication and remote binding
+
+```bash
+# Prefer an environment variable so the password is not stored in shell history.
+# PowerShell:
+$env:BYO_REDIS_PASSWORD='replace-with-a-secret'
+python -m byo_redis --host 0.0.0.0
+
+redis-cli -a replace-with-a-secret PING
+```
+
+Without a configured password, BYO-Redis refuses non-loopback binds by default. The `--allow-unprotected-non-loopback` override is intentionally unsafe and should only be used in an isolated test network. TLS is not built in.
+
 ## RDB and AOF
 
 **Startup load order:** if AOF is enabled and the AOF file is non-empty → replay AOF; else if an RDB file exists → load RDB; else empty DB.
@@ -88,10 +102,10 @@ python -m byo_redis --port 6379 --dir ./data --no-aof
 python -m byo_redis --aof-fsync everysec --dir ./data
 ```
 
-### Persistence notes (v0.1)
+### Persistence notes (v0.2.2)
 
-- **AOF rewrite is not supported.** `appendonly.aof` can grow without bound under sustained writes.
-- Operators should rotate/truncate the AOF with planned downtime (stop → archive/truncate → restart) or rely on periodic / manual **RDB snapshots** (`SAVE` / `BGSAVE`) and disable AOF when growth is a concern.
+- `BGREWRITEAOF` compacts the current keyspace into a new AOF and atomically replaces the old file. Writes pause behind the server write barrier during the rewrite; reads remain available.
+- Operators should monitor AOF size and schedule rewrites before storage pressure becomes critical.
 - AOF appends are queued and flushed by a background task so peer command latency is not blocked on disk `write`/`fsync`; `always` / `everysec` / `no` policies are preserved.
 
 ## Master / replica replication
@@ -128,12 +142,28 @@ Full sync uses `PSYNC` + RDB transfer with a syncing backlog so writes during th
 | `--replicaof HOST:PORT` | — | Run as replica |
 | `--log-level` | `info` | Logging level |
 | `--rdb-save-seconds` | `0` | Periodic BGSAVE interval (0 = off) |
+| `--requirepass` | — | Require `AUTH`; prefer `BYO_REDIS_PASSWORD` to avoid shell history |
+| `--masterauth` | — | Password used by a replica for its master |
+| `--max-clients` | `1000` | Maximum simultaneous clients |
+| `--max-buffer-bytes` | `32000000` | Per-connection RESP input buffer limit |
+| `--proto-max-bulk-len` | `16777216` | Maximum RESP bulk-string length |
+| `--proto-max-array-len` | `1024` | Maximum RESP array element count |
+| `--max-array-depth` | `16` | Maximum nested RESP array depth |
+| `--client-idle-timeout-sec` | `300` | Disconnect idle clients after this many seconds |
+| `--max-auth-failures` | `5` | Close a connection after repeated failed `AUTH` attempts |
+| `--aof-queue-max-commands` | `10000` | Pending AOF command limit |
+| `--replica-backlog-max-bytes` | `67108864` | Full-sync replica backlog limit |
+| `--persistence-max-load-bytes` | `1073741824` | Maximum RDB/AOF bytes accepted during load/full sync |
+| `--maxmemory-bytes` | `0` | Approximate keyspace memory limit; `0` disables it |
+| `--maxmemory-policy` | `noeviction` | `noeviction`, `allkeys-lru`, or `volatile-ttl` |
 
 ## Tests
 
 ```bash
 cd byo-redis
 python -m compileall -q byo_redis
+python -m ruff check byo_redis tests tools docs/_qa_e2e_verify.py
+python -m mypy byo_redis tools docs/_qa_e2e_verify.py
 python -m pytest -q
 ```
 
@@ -143,7 +173,26 @@ Optional process-level E2E (force-kill RDB recovery, AOF replay, replication):
 python docs/_qa_e2e_verify.py
 ```
 
-CI runs compileall + pytest on Python 3.11/3.12 via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs compileall + pytest plus a 75% coverage gate on Python 3.11/3.12 via [`.github/workflows/ci.yml`](.github/workflows/ci.yml); the current suite reports 78% branch coverage.
+
+Run the zero-dependency local benchmark against a started server:
+
+```bash
+python -m tools.benchmark --requests 10000 --concurrency 50 --command ping
+```
+
+See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for the measured v0.2.1 baseline and interpretation limits.
+
+### Durability and resource limits
+
+- `--aof-fsync always` does not acknowledge a write until the AOF record has been written and fsynced; `everysec` acknowledges after the write queue accepts and persists the record, with periodic fsync.
+- AOF queue, replica backlog, RESP bulk/array/depth, per-connection input buffer, and total client connections are bounded.
+- Local persistence loading and replica full-sync snapshots are rejected before allocation when they exceed `--persistence-max-load-bytes`.
+- `maxmemory` supports rollback-safe `noeviction`, approximate `allkeys-lru`, and `volatile-ttl`; evictions are recorded in AOF and replication.
+- Idle clients and connections with repeated failed `AUTH` attempts are closed. This is per-connection protection, not a replacement for a network firewall or global source-IP rate limiting.
+- `INFO` exposes uptime, accepted/rejected connections, processed/failed command counters, keyspace, replication, and persistence health metrics.
+- AOF or fsync failures return `MISCONF` for the affected write instead of silently reporting success.
+- BGSAVE and replica snapshot encoding run outside the asyncio event-loop thread after taking a consistent in-memory snapshot.
 
 ## Project layout
 
@@ -151,6 +200,7 @@ CI runs compileall + pytest on Python 3.11/3.12 via [`.github/workflows/ci.yml`]
 byo-redis/
   byo_redis/          # server package (protocol, commands, storage, persistence, replication)
   tests/              # unit + integration
+  tools/              # zero-dependency benchmark tooling
   docs/               # requirements, architecture, acceptance, verification, release notes
   pyproject.toml
   LICENSE
@@ -163,21 +213,23 @@ Specs and reports:
 - [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)
 - [`docs/VERIFICATION_REPORT.md`](docs/VERIFICATION_REPORT.md)
 - [`docs/REPLICATION_NOTES.md`](docs/REPLICATION_NOTES.md)
+- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) — GitHub publish steps (push only after owner confirms repo name / visibility)
 
-## Known limitations (v0.1)
+## Known limitations (v0.2.2)
 
 - Subset of Redis commands only (see feature table); no pub/sub, transactions, streams, or Lua
 - Single logical DB (`SELECT 0` only)
 - BYOR RDB format (not Redis-compatible dump files)
-- No AOF rewrite / compaction
-- No `AUTH` / TLS — **do not expose to untrusted networks**
+- Single-password `AUTH` only; no ACL users or TLS
 - Replication is async master→replica full sync + propagate (no diskless sync, no replica-of-replica tree tooling)
 - Default bind is localhost
 
+This release is still not a drop-in production Redis replacement: it has no ACL users or TLS, no bounded-memory eviction policy, no partial PSYNC backlog recovery, and only one logical database. Expose it only behind an encrypted network boundary.
+
 ## Security
 
-Default bind is `127.0.0.1`. There is **no AUTH/TLS** in v0.1 — treat this as a local learning / demo server unless you place it behind your own hardened network controls.
+Default bind is `127.0.0.1`. A non-loopback bind is rejected unless `AUTH` is configured or the unsafe override is explicitly supplied. TLS is not implemented, so remote deployment still requires an encrypted network boundary.
 
 ## License
 

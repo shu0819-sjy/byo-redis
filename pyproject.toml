@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "byo-redis"
-version = "0.1.0"
-description = "Build-Your-Own-Redis: industrial-grade Redis subset in Python asyncio"
+version = "0.2.2"
+description = "Build-Your-Own-Redis: hardened Redis subset in Python asyncio"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -13,10 +13,19 @@ authors = [{ name = "BYO-Redis Contributors" }]
 keywords = ["redis", "asyncio", "resp", "rdb", "aof", "replication"]
 dependencies = []
 
-# After GitHub repo creation, add [project.urls] Homepage / Documentation / Issues.
+[project.urls]
+Homepage = "https://github.com/shu0819-sjy/byo-redis"
+Repository = "https://github.com/shu0819-sjy/byo-redis.git"
+Issues = "https://github.com/shu0819-sjy/byo-redis/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
+dev = [
+  "pytest>=7.4,<9",
+  "pytest-asyncio>=0.23,<1",
+  "coverage>=7.4,<8",
+  "mypy>=1.10,<2",
+  "ruff>=0.6,<1",
+]
 
 [project.scripts]
 byo-redis = "byo_redis.cli:main"
@@ -30,3 +39,16 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+pretty = true

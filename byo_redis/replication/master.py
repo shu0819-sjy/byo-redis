@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from byo_redis.persistence.rdb import dump_rdb_bytes
+from byo_redis.persistence.rdb import dump_rdb_entries
 from byo_redis.protocol.encoder import encode_command, encode_simple_string
 
 if TYPE_CHECKING:
@@ -34,13 +34,17 @@ class ReplicaLink:
     state: ReplicaState = "live"
     # Ordered backlog of already-encoded RESP command payloads while syncing
     backlog: list[bytes] = field(default_factory=list)
+    backlog_bytes: int = 0
     _drain_task: asyncio.Task[None] | None = field(default=None, repr=False)
     _pending: asyncio.Queue[object] = field(default_factory=asyncio.Queue, repr=False)
 
 
 @dataclass
 class MasterReplication:
-    store: "Store"
+    store: Store
+    backlog_max_bytes: int = 64 * 1024 * 1024
+    pending_max_commands: int = 10_000
+    snapshot_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     replid: str = field(default_factory=lambda: secrets.token_hex(20))
     offset: int = 0
     replicas: dict[int, ReplicaLink] = field(default_factory=dict)
@@ -140,16 +144,21 @@ class MasterReplication:
         ``await drain`` stay on the syncing backlog and are flushed on the next
         loop iteration instead of being stranded after a premature live flip.
         """
-        rdb = dump_rdb_bytes(self.store)
-        header = encode_simple_string(f"FULLRESYNC {self.replid} {self.offset}")
-        bulk_hdr = f"${len(rdb)}\r\n".encode("ascii")
-        payload = header + bulk_hdr + rdb
-
         registered = False
         total_flushed = 0
         try:
-            link = await self.register_syncing(connection_id, writer)
-            registered = True
+            # 注册和快照与写路径互斥，避免命令同时落入快照和 backlog。
+            async with self.snapshot_lock:
+                link = await self.register_syncing(connection_id, writer)
+                registered = True
+                snapshot_offset = self.offset
+                entries = self.store.snapshot()
+            rdb = await asyncio.to_thread(dump_rdb_entries, entries)
+            header = encode_simple_string(
+                f"FULLRESYNC {self.replid} {snapshot_offset}"
+            )
+            bulk_hdr = f"${len(rdb)}\r\n".encode("ascii")
+            payload = header + bulk_hdr + rdb
 
             if self.full_resync_pause_hook is not None:
                 await self.full_resync_pause_hook()
@@ -162,6 +171,7 @@ class MasterReplication:
                 with self._state_lock:
                     batch = list(link.backlog)
                     link.backlog.clear()
+                    link.backlog_bytes = 0
                     if not batch:
                         link.state = "live"
                         link.offset = self.offset
@@ -218,10 +228,32 @@ class MasterReplication:
                     dead.append(conn_id)
                     continue
                 if link.state == "syncing":
+                    if (
+                        link.backlog_bytes + len(payload)
+                        > self.backlog_max_bytes
+                    ):
+                        logger.error(
+                            "Replica %d backlog exceeded %d bytes; disconnecting",
+                            conn_id,
+                            self.backlog_max_bytes,
+                        )
+                        link.alive = False
+                        dead.append(conn_id)
+                        continue
                     link.backlog.append(payload)
+                    link.backlog_bytes += len(payload)
                     link.offset = self.offset
                     continue
                 try:
+                    if link._pending.qsize() >= self.pending_max_commands:
+                        logger.error(
+                            "Replica %d pending queue exceeded %d commands; disconnecting",
+                            conn_id,
+                            self.pending_max_commands,
+                        )
+                        link.alive = False
+                        dead.append(conn_id)
+                        continue
                     link.writer.write(payload)
                     link.offset = self.offset
                     link._pending.put_nowait(_DRAIN)

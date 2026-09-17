@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from byo_redis.storage.store import WrongTypeError
 
 from .base import CommandContext, RespError, wrong_arity, wrongtype
 from .connection_cmds import _Simple
 
 
-def cmd_set(ctx: CommandContext) -> Any:
+def cmd_set(ctx: CommandContext) -> object:
     # SET key value [EX seconds]
     argc = len(ctx.argv)
     if argc < 3:
@@ -37,7 +35,7 @@ def cmd_set(ctx: CommandContext) -> Any:
     return _Simple("OK")
 
 
-def cmd_get(ctx: CommandContext) -> Any:
+def cmd_get(ctx: CommandContext) -> object:
     if len(ctx.argv) != 2:
         raise wrong_arity("get")
     try:
@@ -46,7 +44,7 @@ def cmd_get(ctx: CommandContext) -> Any:
         raise wrongtype() from exc
 
 
-def cmd_expire(ctx: CommandContext) -> Any:
+def cmd_expire(ctx: CommandContext) -> object:
     if len(ctx.argv) != 3:
         raise wrong_arity("expire")
     key = ctx.argv[1]
@@ -57,7 +55,7 @@ def cmd_expire(ctx: CommandContext) -> Any:
     return ctx.store.expire(key, seconds)
 
 
-def cmd_ttl(ctx: CommandContext) -> Any:
+def cmd_ttl(ctx: CommandContext) -> object:
     if len(ctx.argv) != 2:
         raise wrong_arity("ttl")
     return ctx.store.ttl(ctx.argv[1])

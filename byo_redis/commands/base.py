@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from typing import TYPE_CHECKING
 
 from byo_redis.protocol.encoder import encode_error
 
@@ -45,9 +46,9 @@ def readonly_error() -> RespError:
 
 @dataclass
 class CommandContext:
-    store: "Store"
-    config: "Config"
-    server: "RedisServer"
+    store: Store
+    config: Config
+    server: RedisServer
     argv: list[bytes] = field(default_factory=list)
     # True when applying commands from master replication stream or AOF replay
     is_replica_client: bool = False
@@ -57,7 +58,7 @@ class CommandContext:
     connection_id: int = 0
 
 
-CommandHandler = Callable[[CommandContext], Any | Awaitable[Any]]
+CommandHandler = Callable[[CommandContext], object | Awaitable[object]]
 
 # Commands that mutate data and should be AOF'd / propagated
 WRITE_COMMANDS = frozenset(

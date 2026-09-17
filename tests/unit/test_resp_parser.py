@@ -68,6 +68,13 @@ def test_bulk_limit() -> None:
         parser.feed(b"$9\r\n123456789\r\n")
 
 
+def test_array_element_limit() -> None:
+    """数组元素数量超过上限时拒绝解析。"""
+    parser = RespParser(max_array_len=2)
+    with pytest.raises(ProtocolError, match="array length"):
+        parser.feed(b"*3\r\n")
+
+
 def test_encode_array_mixed() -> None:
     data = encode_array([b"a", 1, None])
     parser = RespParser()

@@ -4,7 +4,32 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from byo_redis.storage.store import Store
+
+
+def test_allkeys_lru_evicts_least_recently_used_key() -> None:
+    """allkeys-lru 应淘汰最久未访问的键。"""
+    store = Store(maxmemory_bytes=140, maxmemory_policy="allkeys-lru")
+    store.set_string(b"old", b"x" * 20)
+    store.set_string(b"new", b"y" * 20)
+    assert store.get_string(b"new") == b"y" * 20
+    evicted = store.enforce_memory_limit()
+    assert evicted == [b"old"]
+    assert store.get_string(b"old") is None
+    assert store.get_string(b"new") == b"y" * 20
+
+
+def test_noeviction_raises_without_removing_data() -> None:
+    """noeviction 超限时抛错且保留原键空间。"""
+    from byo_redis.storage.store import MemoryLimitError
+
+    store = Store(maxmemory_bytes=1, maxmemory_policy="noeviction")
+    store.set_string(b"k", b"v")
+    with pytest.raises(MemoryLimitError):
+        store.enforce_memory_limit()
+    assert store.get_string(b"k") == b"v"
 
 
 def test_lazy_expire_on_get() -> None:

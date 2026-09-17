@@ -2,127 +2,82 @@
 
 | 字段 | 值 |
 |------|----|
-| 产品 | BYO-Redis v0.1 |
-| 任务 | t3 Verification round 1 |
-| 依据 | `docs/ACCEPTANCE.md` |
-| 日期 | 2026-03-22 |
-| 结论 | **PASS** |
+| 产品 | BYO-Redis v0.2.2 |
+| 日期 | 2026-09-17 |
+| 基线 | `8237ccc175edc357b72c075fa38ecbf1fc6a9b44` + 本轮加固改动 |
+| 结论 | **PASS（项目目标范围内）** |
 
-## 环境
+## 验证环境
 
-- OS: Windows-10-10.0.26200-SP0
-- Python: 3.11.15 (MSC v.1944 64 bit AMD64)
-- 工作目录: `byo-redis/`
-- `redis-cli`: **未安装**（按 ACCEPTANCE §6：以兼容 RESP 客户端 + README redis-cli 示例为准，不因此 FAIL）
+- OS：Windows
+- Python：3.11
+- 工作目录：仓库根目录
+- `redis-cli`：未作为自动化依赖；测试使用纯 Python RESP 客户端
 
-## 命令证据
-
-### V1. compileall
+## 自动化结果
 
 ```text
-cd byo-redis
-python -m compileall byo_redis
-```
+python -m compileall -q byo_redis
+PASS
 
-结果: **PASS**（exit 0；列出 `byo_redis` 及子包 `commands/persistence/protocol/replication/storage`）
+python -m ruff check byo_redis tests tools docs/_qa_e2e_verify.py
+All checks passed!
 
-### V2. pytest
+python -m mypy byo_redis tools docs/_qa_e2e_verify.py
+Success: no issues found in 29 source files
 
-```text
-cd byo-redis
 python -m pytest -q
+68 passed
+
+python -m coverage run --branch -m pytest -q
+python -m coverage report --fail-under=75
+TOTAL 78%（门禁通过）
 ```
 
-结果: **PASS** — `34 passed in 3.36s`（exit 0）
+源码中无 `typing.Any` 和 `type: ignore`。
 
-覆盖用例（摘录）:
+## 进程级 E2E
 
-| 区域 | 用例 |
+执行：
+
+```text
+python docs/_qa_e2e_verify.py
+```
+
+结果：`OVERALL PASS`。
+
+| 区域 | 结果 |
 |------|------|
-| RESP | `test_sticky_packets`, `test_partial_packets`, bulk/null/error/array |
-| String | `test_set_get`, `test_get_missing`, `test_expire_missing`, `test_string_expire` |
-| List | `test_lpush_rpop_order`, `test_lpush_multi`, wrongtype |
-| Hash | `test_hset_hgetall`, `test_hgetall_missing`, wrongtype |
-| RDB | `test_rdb_save_and_reload`, `test_rdb_roundtrip_bytes` |
-| AOF | `test_aof_append_and_replay` |
-| 复制 | `test_replication_consistency` |
-| 连通 | `test_ping`, `test_echo_and_unknown`, `test_pipeline_sticky` |
+| 核心命令 | PING、String、List、Hash、过期、WRONGTYPE 通过 |
+| RDB 崩溃恢复 | SAVE 后强制杀进程，同目录重启恢复 String/List/Hash/TTL |
+| AOF | 仅记录写命令，移除 RDB 后可独立重放恢复 |
+| 复制 | 全量同步、增量写、角色 INFO、Replica 只读均通过 |
 
-### V3. QA E2E harness（进程级 + 强制杀进程）
+## 本轮加固项
 
-```text
-cd byo-redis
-python docs/_qa_e2e_verify.py
-```
+- `aof-fsync=always` 在客户端成功响应前完成 write + fsync。
+- AOF 写盘故障返回 `MISCONF`，失败状态阻止后续写入伪成功。
+- AOF 队列、复制 backlog、副本待 drain 队列、客户端数和 RESP buffer 均有上限。
+- `BGREWRITEAOF` 可压缩历史并通过临时文件原子替换，重启后数据等价。
+- BYOR v2 增加 CRC32 校验，主体损坏和尾部多余数据会拒绝加载。
+- FULLRESYNC 注册、快照和写命令共享写屏障，避免漏写或重复执行。
+- `AUTH` 与 `masterauth` 已覆盖；无认证时默认拒绝非回环监听。
+- 空闲连接、连续认证失败、RESP 数组元素数量与持久化文件名均有边界检查。
+- AOF 故障会唤醒并失败全部排队请求；服务停止会主动关闭现有客户端连接。
+- AOF 进入故障状态后，后续客户端写命令会在修改内存前返回 `MISCONF`。
+- 本地 RDB/AOF 加载和副本 RDB 接收均受统一字节上限保护。
+- `INFO` 增加 uptime、连接计数和命令成功/失败计数，便于基础运行排障。
+- 新增零依赖并发基准工具和可复现的 v0.2.1 性能基线。
+- `maxmemory` 提供 `noeviction`、`allkeys-lru` 和 `volatile-ttl`，超限回滚安全，淘汰会写入 AOF 并传播到副本。
+- BGSAVE 和复制快照编码移出 asyncio 事件循环线程。
+- GitHub Actions 覆盖 Python 3.11/3.12、Ruff、mypy、pytest 和覆盖率门禁。
 
-结果: **OVERALL PASS**
+## 已知边界
 
-- commands: PING→PONG; SET/GET; SET EX 过期; EXPIRE; LPUSH/RPOP 顺序; HSET/HGETALL; WRONGTYPE
-- rdb_crash: `SAVE` 生成 RDB size=124 → `taskkill /F` 强制杀进程 → 同目录重启后 str/list/hash/ttlkey 恢复
-- aof: AOF size=91 含 SET 不含 GET → 删除 RDB 后重启 → a/L/H 从 AOF 重放恢复
-- replication: full sync `pre=seed`; `role:master`/`role:slave`; HGETALL 一致; 增量 `post=incr` ≤2s; replica `SET`→READONLY
+- 没有 TLS、多用户 ACL 和按来源 IP 的全局认证限流；远程使用必须放在加密网络边界之后。
+- 没有 maxmemory 淘汰策略、Cluster、Sentinel、RESP3、Lua、事务或 Pub/Sub。
+- 复制仅支持全量同步和后续传播，不支持部分 PSYNC 或自动故障转移。
+- BYOR 快照不是官方 Redis RDB 格式。
+- `BGREWRITEAOF` 期间读请求可继续，但写请求会在写屏障后短暂停顿。
 
-## 矩阵（A1–A8 Must）
-
-| ID | 结果 | 证据 |
-|----|------|------|
-| A1.1 | PASS | 集成 fixture / E2E `RespClient.connect` 成功 |
-| A1.2 | PASS | `test_ping`; E2E `PING→PONG` |
-| A1.3 | PASS | `test_pipeline_sticky`; `test_sticky_packets` |
-| A1.4 | PASS | `test_partial_packets` |
-| A1.5 | PASS | `test_echo_and_unknown`（unknown command） |
-| A2.1 | PASS | `test_set_get`; E2E SET/GET |
-| A2.2 | PASS | `test_get_missing` |
-| A2.3 | PASS | `test_string_expire`; E2E SET EX 1 |
-| A2.4 | PASS | E2E EXPIRE then GET null; unit expire/TTL |
-| A2.5 | PASS | `test_expire_missing` → 0 |
-| A2.6 | PASS | `test_wrongtype` / `test_wrongtype_get` |
-| A3.1–A3.2 | PASS | `test_lpush_rpop_order`; E2E LPUSH a/b → RPOP a then b |
-| A3.3 | PASS | E2E 第三次 RPOP → null |
-| A3.4 | PASS | list wrongtype unit/integration |
-| A4.1–A4.3 | PASS | `test_hset_hgetall`; E2E HSET 1 then 0, HGETALL |
-| A4.4 | PASS | `test_hgetall_missing` |
-| A4.5 | PASS | hash wrongtype unit |
-| A5.1 | PASS | `test_rdb_save_and_reload`; E2E SAVE RDB size>0 |
-| A5.2 | PASS | E2E **强制** `taskkill /F /T` 杀进程后重启 |
-| A5.3 | PASS | 重启后 GET/RPOP/HGETALL/TTL 键一致 |
-| A5.4 | — | Should；未单独测半截临时文件（不否决） |
-| A6.1 | PASS | AOF 增长且含 SET；`test_aof_append_and_replay` |
-| A6.2 | PASS | 去 RDB 后重启仅靠 AOF 恢复 |
-| A6.3 | PASS (Should) | AOF 内容无 GET |
-| A7.1 | PASS | INFO `role:master` / `role:slave` |
-| A7.2 | PASS | replica link 同步完成（GET pre 可见） |
-| A7.3 | PASS | replica 与 master 关键键一致 |
-| A7.4 | PASS | 同步后再 SET post，≤2s 可见 |
-| A7.5 | PASS | replica SET → READONLY |
-| A8.1 | PASS | compileall exit 0 |
-| A8.2 | PASS | pytest 34 passed；覆盖 A1–A7 |
-| A8.3 | PASS | `server/protocol/commands/storage/persistence/replication` 边界存在 |
-| A8.4 | PASS | README 含安装/启动/redis-cli 示例/测试命令 |
-| A8.5 | PASS | 抽查无密钥/个人绝对路径硬编码 |
-
-## redis-cli 说明
-
-主机无 `redis-cli` 二进制。协议兼容性由项目内纯 Python `RespClient`（pytest + `docs/_qa_e2e_verify.py`）证明；README 已提供可复制的 redis-cli 示例。符合 ACCEPTANCE §1.3 / §6。
-
-## 缺陷列表
-
-无 Must 级缺陷。
-
-备注（非否决）:
-
-1. 环境缺少 `redis-cli`，未做二进制旁证（已按规范用兼容客户端替代）。
-2. A5.4 半截 RDB 原子性为 Should，未在本轮单独构造损坏临时文件场景。
-
-## 结论
-
-**PASS** — A1–A7 Must 与 A8.1–A8.4 全部通过；可进入 review（t4）。
-
-可复现验证命令:
-
-```text
-cd byo-redis
-python -m compileall byo_redis
-python -m pytest -q
-python docs/_qa_e2e_verify.py
-```
+本报告中的 PASS 表示 v0.2.2 既定功能与加固契约通过，不代表与官方 Redis 等价，也不代表可直接暴露到不可信网络。

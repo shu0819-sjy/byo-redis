@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
-import pytest
 import pytest_asyncio
 
 from byo_redis.config import Config

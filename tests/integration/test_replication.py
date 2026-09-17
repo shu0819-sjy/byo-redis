@@ -15,7 +15,9 @@ import pytest
 
 from byo_redis.config import Config
 from byo_redis.protocol.parser import ProtocolError, ProtocolErrorMsg, RespParser
+from byo_redis.replication.replica import ReplicaClient
 from byo_redis.server import RedisServer
+from byo_redis.storage.store import Store
 from tests.conftest import RespClient, unused_port
 
 
@@ -83,7 +85,8 @@ async def test_replication_consistency(tmp_path: Path) -> None:
             assert entry is not None
             assert list(entry.value) == [b"a"]
             flat = await rc.execute("HGETALL", "H")
-            mapping = dict(zip(flat[0::2], flat[1::2]))  # type: ignore[index]
+            assert isinstance(flat, list)
+            mapping = dict(zip(flat[0::2], flat[1::2], strict=True))
             assert mapping == {b"f": b"1"}
             assert await rc.execute("DBSIZE") == 3
 
@@ -144,6 +147,7 @@ async def test_writes_during_fullresync_reach_replica(tmp_path: Path) -> None:
     mc = RespClient(master_cfg.host, master_cfg.port)
     await mc.connect()
     assert await mc.execute("SET", "before", "1") == "OK"
+    assert await mc.execute("LPUSH", "sync-list", "before") == 1
 
     pause_entered = asyncio.Event()
     resume = asyncio.Event()
@@ -162,6 +166,7 @@ async def test_writes_during_fullresync_reach_replica(tmp_path: Path) -> None:
         await pause_entered.wait()
         # Concurrent write while replica is registered as syncing
         assert await mc.execute("SET", "during", "sync") == "OK"
+        assert await mc.execute("LPUSH", "sync-list", "during") == 2
         mid_write_done.set()
         resume.set()
 
@@ -185,6 +190,9 @@ async def test_writes_during_fullresync_reach_replica(tmp_path: Path) -> None:
                     break
                 await asyncio.sleep(0.05)
             assert got == b"sync"
+            list_entry = replica.store.get_entry(b"sync-list")
+            assert list_entry is not None
+            assert list(list_entry.value) == [b"during", b"before"]
         finally:
             await rc.close()
     finally:
@@ -242,6 +250,27 @@ def test_parser_max_buffer_bytes_raises() -> None:
     parser = RespParser(max_bulk_len=1024, max_buffer_bytes=16)
     with pytest.raises(ProtocolError, match="max_buffer_bytes"):
         parser.feed(b"$100\r\n" + b"x" * 100 + b"\r\n")
+
+
+@pytest.mark.asyncio
+async def test_replica_rejects_snapshot_length_over_limit() -> None:
+    """副本必须在接收快照主体前拒绝过大的 RDB 长度声明。"""
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"$2048\r\n")
+    parser = RespParser()
+
+    async def apply_command(argv: list[bytes]) -> None:
+        """测试占位回调；本用例不会执行复制命令。"""
+
+    replica = ReplicaClient(
+        "127.0.0.1",
+        6379,
+        Store(),
+        apply_command,
+        snapshot_max_bytes=1024,
+    )
+    with pytest.raises(ProtocolError, match="snapshot limit"):
+        await replica._read_rdb_bulk(reader, parser)
 
 
 @pytest.mark.asyncio
@@ -349,5 +378,46 @@ async def test_writes_during_fullresync_flush_window_reach_replica(
             except asyncio.CancelledError:
                 pass
         await mc.close()
+        await replica.stop()
+        await master.stop()
+
+
+@pytest.mark.asyncio
+async def test_replica_authenticates_to_password_protected_master(
+    tmp_path: Path,
+) -> None:
+    """配置 masterauth 后，副本能够连接受 AUTH 保护的主节点。"""
+    master_cfg = Config(
+        host="127.0.0.1",
+        port=unused_port(),
+        dir=tmp_path / "auth-master",
+        aof_enabled=False,
+        requirepass="replication-secret",
+        log_level="warning",
+    )
+    replica_cfg = Config(
+        host="127.0.0.1",
+        port=unused_port(),
+        dir=tmp_path / "auth-replica",
+        aof_enabled=False,
+        role="replica",
+        replicaof_host="127.0.0.1",
+        replicaof_port=master_cfg.port,
+        masterauth="replication-secret",
+        log_level="warning",
+    )
+    master = RedisServer(master_cfg)
+    replica = RedisServer(replica_cfg)
+    await master.start()
+    client = RespClient(master_cfg.host, master_cfg.port)
+    await client.connect()
+    try:
+        assert await client.execute("AUTH", "replication-secret") == "OK"
+        assert await client.execute("SET", "protected", "value") == "OK"
+        await replica.start()
+        await _wait_replica_up(replica)
+        assert replica.store.get_string(b"protected") == b"value"
+    finally:
+        await client.close()
         await replica.stop()
         await master.stop()

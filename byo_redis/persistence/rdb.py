@@ -2,7 +2,7 @@
 
 Format (little-endian):
   magic: b'BYOR'
-  version: uint32 = 1
+  version: uint32 = 2
   key_count: uint32
   repeated key records:
     key_len: uint32
@@ -13,6 +13,7 @@ Format (little-endian):
       STRING: value_len + value
       LIST:   count + (len+data)*count
       HASH:   count + (field_len+field + value_len+value)*count
+  checksum: uint32 CRC32 (version 2)
   footer: b'EOF\\n'
 """
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import struct
+import zlib
 from collections import deque
 from pathlib import Path
 
@@ -31,7 +33,8 @@ from byo_redis.storage.types import KeyEntry, RedisType
 logger = logging.getLogger(__name__)
 
 MAGIC = b"BYOR"
-VERSION = 1
+VERSION = 2
+LEGACY_VERSION = 1
 TYPE_STRING = 1
 TYPE_LIST = 2
 TYPE_HASH = 3
@@ -70,6 +73,11 @@ def _read_blob(buf: memoryview, offset: int) -> tuple[bytes, int]:
 
 def dump_rdb_bytes(store: Store) -> bytes:
     entries = store.snapshot()
+    return dump_rdb_entries(entries)
+
+
+def dump_rdb_entries(entries: dict[bytes, KeyEntry]) -> bytes:
+    """将已经复制出的键空间编码为 BYOR 快照。"""
     parts: list[bytes] = [MAGIC, struct.pack("<I", VERSION), struct.pack("<I", len(entries))]
     for key, entry in entries.items():
         parts.append(_pack_bytes(key))
@@ -85,20 +93,24 @@ def dump_rdb_bytes(store: Store) -> bytes:
         expire = -1 if entry.expire_at_ms is None else int(entry.expire_at_ms)
         parts.append(struct.pack("<q", expire))
         if entry.type is RedisType.STRING:
-            parts.append(_pack_bytes(entry.value))  # type: ignore[arg-type]
+            assert isinstance(entry.value, bytes)
+            parts.append(_pack_bytes(entry.value))
         elif entry.type is RedisType.LIST:
-            items: deque[bytes] = entry.value  # type: ignore[assignment]
+            assert isinstance(entry.value, deque)
+            items = entry.value
             parts.append(struct.pack("<I", len(items)))
             for item in items:
                 parts.append(_pack_bytes(item))
         else:
-            mapping: dict[bytes, bytes] = entry.value  # type: ignore[assignment]
+            assert isinstance(entry.value, dict)
+            mapping = entry.value
             parts.append(struct.pack("<I", len(mapping)))
             for field, value in mapping.items():
                 parts.append(_pack_bytes(field))
                 parts.append(_pack_bytes(value))
-    parts.append(FOOTER)
-    return b"".join(parts)
+    body = b"".join(parts)
+    checksum = struct.pack("<I", zlib.crc32(body))
+    return body + checksum + FOOTER
 
 
 def dump_rdb(store: Store, path: Path) -> None:
@@ -113,7 +125,14 @@ def dump_rdb(store: Store, path: Path) -> None:
     logger.info("RDB saved to %s (%d bytes)", path, len(payload))
 
 
-def load_rdb_bytes(data: bytes) -> dict[bytes, KeyEntry]:
+def load_rdb_bytes(
+    data: bytes, *, max_file_bytes: int = 1024 * 1024 * 1024
+) -> dict[bytes, KeyEntry]:
+    """解析 RDB 字节；输入超过配置上限时在解码前拒绝。"""
+    if len(data) > max_file_bytes:
+        raise RdbError(
+            f"RDB size {len(data)} exceeds load limit {max_file_bytes}"
+        )
     if len(data) < 12:
         raise RdbError("RDB too short")
     buf = memoryview(data)
@@ -122,7 +141,7 @@ def load_rdb_bytes(data: bytes) -> dict[bytes, KeyEntry]:
     if magic != MAGIC:
         raise RdbError(f"bad RDB magic: {magic!r}")
     version, offset = _read_u32(buf, offset)
-    if version != VERSION:
+    if version not in (LEGACY_VERSION, VERSION):
         raise RdbError(f"unsupported RDB version: {version}")
     count, offset = _read_u32(buf, offset)
     now = now_ms()
@@ -156,19 +175,42 @@ def load_rdb_bytes(data: bytes) -> dict[bytes, KeyEntry]:
         if is_expired(entry.expire_at_ms, now=now):
             continue
         entries[key] = entry
+    if version >= 2:
+        checksum_offset = offset
+        checksum_raw, offset = _read_exact(buf, offset, 4)
+        expected_checksum = struct.unpack("<I", checksum_raw)[0]
+        actual_checksum = zlib.crc32(data[:checksum_offset])
+        if actual_checksum != expected_checksum:
+            raise RdbError("RDB checksum mismatch")
     footer, offset = _read_exact(buf, offset, len(FOOTER))
     if footer != FOOTER:
         raise RdbError("missing RDB footer")
+    if offset != len(buf):
+        raise RdbError("trailing bytes after RDB footer")
     return entries
 
 
-def load_rdb(path: Path) -> dict[bytes, KeyEntry]:
+def load_rdb(
+    path: Path, *, max_file_bytes: int = 1024 * 1024 * 1024
+) -> dict[bytes, KeyEntry]:
+    """从磁盘加载 RDB；读取文件前先校验大小上限。"""
+    file_size = path.stat().st_size
+    if file_size > max_file_bytes:
+        raise RdbError(
+            f"RDB size {file_size} exceeds load limit {max_file_bytes}"
+        )
     data = path.read_bytes()
-    return load_rdb_bytes(data)
+    return load_rdb_bytes(data, max_file_bytes=max_file_bytes)
 
 
-def load_rdb_into(store: Store, path: Path) -> int:
-    entries = load_rdb(path)
+def load_rdb_into(
+    store: Store,
+    path: Path,
+    *,
+    max_file_bytes: int = 1024 * 1024 * 1024,
+) -> int:
+    """加载 RDB 到存储；返回实际恢复的键数量。"""
+    entries = load_rdb(path, max_file_bytes=max_file_bytes)
     store.load_entries(entries)
     logger.info("RDB loaded from %s (%d keys)", path, len(entries))
     return len(entries)

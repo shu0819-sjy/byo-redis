@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -78,7 +77,16 @@ class RespClient:
                 return msgs[0]
 
 
-def start_server(port: int, data_dir: Path, extra: list[str] | None = None) -> subprocess.Popen:
+def pair_mapping(value: object) -> dict[object, object]:
+    """将交替键值列表转为字典；入参必须是偶数长度列表，返回键值映射，异常类型直接断言失败。"""
+    assert isinstance(value, list)
+    assert len(value) % 2 == 0
+    return dict(zip(value[0::2], value[1::2], strict=True))
+
+
+def start_server(
+    port: int, data_dir: Path, extra: list[str] | None = None
+) -> subprocess.Popen[bytes]:
     data_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable,
@@ -104,7 +112,7 @@ def start_server(port: int, data_dir: Path, extra: list[str] | None = None) -> s
     )
 
 
-def force_kill(proc: subprocess.Popen) -> None:
+def force_kill(proc: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
         # Hard kill — simulates crash (no graceful stop)
         subprocess.run(
@@ -113,7 +121,7 @@ def force_kill(proc: subprocess.Popen) -> None:
             check=False,
         )
     else:
-        proc.send_signal(signal.SIGKILL)
+        proc.kill()
     try:
         proc.wait(timeout=5)
     except Exception:
@@ -153,7 +161,7 @@ async def section_commands(port: int) -> list[str]:
         assert await c.execute("HSET", "hk", "f1", "v1") == 1
         assert await c.execute("HSET", "hk", "f1", "v2") == 0
         flat = await c.execute("HGETALL", "hk")
-        mapping = dict(zip(flat[0::2], flat[1::2]))  # type: ignore[index]
+        mapping = pair_mapping(flat)
         assert mapping == {b"f1": b"v2"}
         evidence.append("HSET/HGETALL f1=v2")
 
@@ -186,7 +194,6 @@ async def section_rdb_crash(tmp: Path) -> list[str]:
 
         force_kill(proc)
         evidence.append(f"force-killed PID {proc.pid} (taskkill /F)")
-        proc = None  # type: ignore
 
         # Restart same dir
         proc2 = start_server(port, data, ["--no-aof"])
@@ -196,7 +203,7 @@ async def section_rdb_crash(tmp: Path) -> list[str]:
             assert await c2.execute("GET", "str") == b"hello"
             assert await c2.execute("RPOP", "lst") == b"a"
             flat = await c2.execute("HGETALL", "hs")
-            mapping = dict(zip(flat[0::2], flat[1::2]))  # type: ignore[index]
+            mapping = pair_mapping(flat)
             assert mapping == {b"f": b"v"}
             assert await c2.execute("GET", "ttlkey") == b"t"
             evidence.append("post-crash restart restored str/list/hash/ttlkey")
@@ -204,7 +211,7 @@ async def section_rdb_crash(tmp: Path) -> list[str]:
         finally:
             force_kill(proc2)
     finally:
-        if proc is not None:
+        if proc.poll() is None:
             force_kill(proc)
     return evidence
 
@@ -213,7 +220,9 @@ async def section_aof(tmp: Path) -> list[str]:
     evidence: list[str] = []
     port = unused_port()
     data = tmp / "aof_e2e"
-    proc = start_server(port, data, ["--aof", "--aof-fsync", "always"])
+    proc = start_server(
+        port, data, ["--aof", "--aof-fsync", "always"]
+    )
     try:
         c = RespClient("127.0.0.1", port)
         await c.connect()
@@ -228,7 +237,6 @@ async def section_aof(tmp: Path) -> list[str]:
         evidence.append(f"AOF size={aof.stat().st_size}; contains SET; no GET")
         await c.close()
         force_kill(proc)
-        proc = None  # type: ignore
 
         # Prefer AOF: remove RDB if present
         rdb = data / "dump.rdb"
@@ -242,14 +250,14 @@ async def section_aof(tmp: Path) -> list[str]:
             assert await c2.execute("GET", "a") == b"1"
             assert await c2.execute("RPOP", "L") == b"x"
             flat = await c2.execute("HGETALL", "H")
-            mapping = dict(zip(flat[0::2], flat[1::2]))  # type: ignore[index]
+            mapping = pair_mapping(flat)
             assert mapping == {b"f": b"v"}
             evidence.append("AOF replay restored a/L/H after restart (RDB removed)")
             await c2.close()
         finally:
             force_kill(proc2)
     finally:
-        if proc is not None:
+        if proc.poll() is None:
             force_kill(proc)
     return evidence
 
@@ -287,12 +295,12 @@ async def section_replication(tmp: Path) -> list[str]:
 
             minfo = await mc.execute("INFO", "replication")
             rinfo = await rc.execute("INFO", "replication")
-            assert b"role:master" in minfo  # type: ignore[operator]
-            assert b"role:slave" in rinfo  # type: ignore[operator]
+            assert isinstance(minfo, bytes) and b"role:master" in minfo
+            assert isinstance(rinfo, bytes) and b"role:slave" in rinfo
             evidence.append("INFO role:master / role:slave")
 
             flat = await rc.execute("HGETALL", "H")
-            mapping = dict(zip(flat[0::2], flat[1::2]))  # type: ignore[index]
+            mapping = pair_mapping(flat)
             assert mapping == {b"f": b"1"}
             evidence.append("replica HGETALL H matches")
 
