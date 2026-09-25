@@ -31,11 +31,13 @@ python -m compileall -q byo_redis
 ruff check byo_redis tests
 ruff format --check byo_redis tests
 mypy byo_redis
-python -m pytest -q
+python -m coverage run -m pytest -q
+python -m coverage report --fail-under=75
 ```
 
-CI runs the same gates on Python 3.11 and 3.12. Fix failures locally before
-opening a PR — do not widen `mypy` `strict` settings to silence new errors.
+CI runs the same gates on Python 3.11 and 3.12 (coverage fail-under **75**). Fix
+failures locally before opening a PR — do not widen `mypy` `strict` settings to
+silence new errors.
 
 ## Ground rules
 
