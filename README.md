@@ -1,5 +1,7 @@
 # BYO-Redis
 
+[![CI](https://github.com/shu0819-sjy/byo-redis/actions/workflows/ci.yml/badge.svg)](https://github.com/shu0819-sjy/byo-redis/actions/workflows/ci.yml)
+
 Build-Your-Own-Redis: a hardened, educational Redis protocol subset implemented with **Python asyncio**.
 
 Compatible with `redis-cli` for the supported command set. Designed for correctness, clear module boundaries, persistence demos, and master/replica replication.
