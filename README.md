@@ -14,9 +14,9 @@ Compatible with `redis-cli` for the supported command set. Designed for correctn
 | String | `SET` / `GET` / `EXPIRE` / `TTL` |
 | List | `LPUSH` / `RPOP` |
 | Hash | `HSET` / `HGETALL` |
-| Persistence | Checksummed RDB snapshot (`SAVE` / `BGSAVE`) + AOF append/replay/rewrite |
-| Replication | Master → replica full sync (`PSYNC`) + write propagation |
-| Ops | `PING` `ECHO` `INFO` `CONFIG GET` `DEL` `DBSIZE` `SELECT 0` |
+| Persistence | Checksummed RDB snapshot (`SAVE` / `BGSAVE`) + AOF append/replay/rewrite (`BGREWRITEAOF`) |
+| Replication | Master → replica full sync (`PSYNC` + `REPLCONF`) + write propagation |
+| Ops | `PING` `ECHO` `INFO` `CONFIG GET` `DEL` `DBSIZE` `SELECT 0` `COMMAND` |
 | Security | `AUTH`, protected non-loopback binding, bounded client/protocol queues |
 
 > **RDB note:** snapshots use a documented **BYOR** binary format (`magic=BYOR`), not the official Redis RDB wire format. Recovery is self-consistent within BYO-Redis.
@@ -232,6 +232,12 @@ This release is still not a drop-in production Redis replacement: it has no ACL 
 ## Security
 
 Default bind is `127.0.0.1`. A non-loopback bind is rejected unless `AUTH` is configured or the unsafe override is explicitly supplied. TLS is not implemented, so remote deployment still requires an encrypted network boundary.
+
+Vulnerability reporting (private): [`SECURITY.md`](SECURITY.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local gates (`ruff` / `mypy` / `pytest`) and PR expectations.
 
 ## License
 

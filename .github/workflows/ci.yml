@@ -38,5 +38,7 @@ jobs:
       - name: Type check (hard gate)
         run: mypy byo_redis
 
-      - name: Run tests
-        run: python -m pytest -q
+      - name: Run tests with coverage gate (>=75)
+        run: |
+          python -m coverage run -m pytest -q
+          python -m coverage report --fail-under=75
