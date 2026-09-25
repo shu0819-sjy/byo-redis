@@ -97,12 +97,7 @@ def test_rdb_v2_loader_remains_compatible_with_v1_snapshot() -> None:
     store = Store()
     store.set_string(b"legacy", b"value")
     version_two = dump_rdb_bytes(store)
-    version_one = (
-        version_two[:4]
-        + struct.pack("<I", 1)
-        + version_two[8:-8]
-        + version_two[-4:]
-    )
+    version_one = version_two[:4] + struct.pack("<I", 1) + version_two[8:-8] + version_two[-4:]
     entries = load_rdb_bytes(version_one)
     assert entries[b"legacy"].value == b"value"
 

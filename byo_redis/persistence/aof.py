@@ -93,13 +93,9 @@ class AOFLog:
         if self._queue is None:
             self._queue = asyncio.Queue(maxsize=self.queue_max_commands)
         self._loop = asyncio.get_running_loop()
-        self._writer_task = asyncio.create_task(
-            self._writer_loop(), name="aof-writer"
-        )
+        self._writer_task = asyncio.create_task(self._writer_loop(), name="aof-writer")
         if self.fsync_policy == "everysec":
-            self._fsync_task = asyncio.create_task(
-                self._fsync_loop(), name="aof-fsync"
-            )
+            self._fsync_task = asyncio.create_task(self._fsync_loop(), name="aof-fsync")
 
     async def _writer_loop(self) -> None:
         assert self._queue is not None
@@ -184,9 +180,7 @@ class AOFLog:
         completed = asyncio.get_running_loop().create_future()
         item = _AofItem(payload=payload, completed=completed)
         try:
-            await asyncio.wait_for(
-                self._queue.put(item), timeout=self.enqueue_timeout_sec
-            )
+            await asyncio.wait_for(self._queue.put(item), timeout=self.enqueue_timeout_sec)
         except TimeoutError as exc:
             raise OSError("AOF queue is full") from exc
         await completed
@@ -265,9 +259,7 @@ class AOFLog:
             return []
         file_size = path.stat().st_size
         if file_size > max_file_bytes:
-            raise AofError(
-                f"AOF size {file_size} exceeds load limit {max_file_bytes}"
-            )
+            raise AofError(f"AOF size {file_size} exceeds load limit {max_file_bytes}")
         data = path.read_bytes()
         parser = RespParser(max_bulk_len=max_bulk_len)
         try:
@@ -287,9 +279,7 @@ class AOFLog:
             if not isinstance(msg, list) or not msg:
                 logger.warning("Skipping non-array AOF entry: %r", msg)
                 continue
-            if not all(
-                isinstance(x, (bytes, bytearray)) or x is None for x in msg
-            ):
+            if not all(isinstance(x, (bytes, bytearray)) or x is None for x in msg):
                 argv: list[bytes] = []
                 ok = True
                 for x in msg:
@@ -351,7 +341,5 @@ def _build_rewrite_payload(entries: dict[bytes, KeyEntry]) -> bytes:
             remaining_ms = entry.expire_at_ms - current_ms
             if remaining_ms > 0:
                 seconds = max(1, math.ceil(remaining_ms / 1000))
-                commands.append(
-                    encode_command([b"EXPIRE", key, str(seconds).encode("ascii")])
-                )
+                commands.append(encode_command([b"EXPIRE", key, str(seconds).encode("ascii")]))
     return b"".join(commands)

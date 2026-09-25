@@ -26,9 +26,7 @@ class RespError(Exception):
 
 
 def wrongtype() -> RespError:
-    return RespError(
-        "WRONGTYPE Operation against a key holding the wrong kind of value"
-    )
+    return RespError("WRONGTYPE Operation against a key holding the wrong kind of value")
 
 
 def wrong_arity(cmd: str) -> RespError:

@@ -6,7 +6,7 @@ Build-Your-Own-Redis: a hardened, educational Redis protocol subset implemented 
 
 Compatible with `redis-cli` for the supported command set. Designed for correctness, clear module boundaries, persistence demos, and master/replica replication.
 
-## Features (v0.2.2)
+## Features (v0.2.3)
 
 | Area | Commands / capability |
 |------|------------------------|
@@ -104,7 +104,7 @@ python -m byo_redis --port 6379 --dir ./data --no-aof
 python -m byo_redis --aof-fsync everysec --dir ./data
 ```
 
-### Persistence notes (v0.2.2)
+### Persistence notes (v0.2.3)
 
 - `BGREWRITEAOF` compacts the current keyspace into a new AOF and atomically replaces the old file. Writes pause behind the server write barrier during the rewrite; reads remain available.
 - Operators should monitor AOF size and schedule rewrites before storage pressure becomes critical.
@@ -218,7 +218,7 @@ Specs and reports:
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 - [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) — GitHub publish steps (push only after owner confirms repo name / visibility)
 
-## Known limitations (v0.2.2)
+## Known limitations (v0.2.3)
 
 - Subset of Redis commands only (see feature table); no pub/sub, transactions, streams, or Lua
 - Single logical DB (`SELECT 0` only)

@@ -34,14 +34,11 @@ class RespParser:
         if data:
             if len(self._buf) + len(data) > self.max_buffer_bytes:
                 raise ProtocolError(
-                    f"input buffer exceeds max_buffer_bytes "
-                    f"({self.max_buffer_bytes})"
+                    f"input buffer exceeds max_buffer_bytes ({self.max_buffer_bytes})"
                 )
             self._buf.extend(data)
         elif len(self._buf) > self.max_buffer_bytes:
-            raise ProtocolError(
-                f"input buffer exceeds max_buffer_bytes ({self.max_buffer_bytes})"
-            )
+            raise ProtocolError(f"input buffer exceeds max_buffer_bytes ({self.max_buffer_bytes})")
         messages: list[object] = []
         while True:
             value, consumed = self._try_parse(0, depth=0)
@@ -115,9 +112,7 @@ class RespParser:
 
     def _parse_array(self, start: int, *, depth: int) -> tuple[object, int]:
         if depth >= self._max_array_depth:
-            raise ProtocolError(
-                f"array nesting exceeds limit ({self._max_array_depth})"
-            )
+            raise ProtocolError(f"array nesting exceeds limit ({self._max_array_depth})")
         line, hdr_end = self._read_line(start + 1)
         if hdr_end == 0:
             return None, 0

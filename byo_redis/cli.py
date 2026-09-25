@@ -34,9 +34,7 @@ async def _run(argv: list[str] | None = None) -> int:
     serve_task = asyncio.create_task(server.serve_forever(), name="redis-serve")
     stop_task = asyncio.create_task(stop_event.wait(), name="redis-stop-wait")
     try:
-        done, _ = await asyncio.wait(
-            {serve_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, _ = await asyncio.wait({serve_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
         if serve_task in done:
             await serve_task
     except asyncio.CancelledError:

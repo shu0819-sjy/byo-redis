@@ -148,16 +148,12 @@ class ReplicaClient:
         logger.info("Master replied %s", full)
 
         rdb = await self._read_rdb_bulk(reader, parser)
-        entries = load_rdb_bytes(
-            rdb, max_file_bytes=self.snapshot_max_bytes
-        )
+        entries = load_rdb_bytes(rdb, max_file_bytes=self.snapshot_max_bytes)
         self.store.load_entries(entries)
         self.link_status = "up"
         logger.info("FULLRESYNC complete: loaded %d keys from master", len(entries))
 
-    async def _read_rdb_bulk(
-        self, reader: asyncio.StreamReader, parser: RespParser
-    ) -> bytes:
+    async def _read_rdb_bulk(self, reader: asyncio.StreamReader, parser: RespParser) -> bytes:
         """Read Redis-style RDB bulk: $<len>\\r\\n + raw bytes (no trailing CRLF)."""
         buf = bytearray()
         if parser.buffered_size:
@@ -188,8 +184,7 @@ class ReplicaClient:
             raise ProtocolError("null RDB not allowed")
         if length > self.snapshot_max_bytes:
             raise ProtocolError(
-                f"RDB bulk length {length} exceeds snapshot limit "
-                f"{self.snapshot_max_bytes}"
+                f"RDB bulk length {length} exceeds snapshot limit {self.snapshot_max_bytes}"
             )
         start = idx + 2
         await ensure(start + length)
@@ -199,9 +194,7 @@ class ReplicaClient:
             parser.feed(leftover)
         return rdb
 
-    async def _read_loop(
-        self, reader: asyncio.StreamReader, parser: RespParser
-    ) -> None:
+    async def _read_loop(self, reader: asyncio.StreamReader, parser: RespParser) -> None:
         # Apply any complete commands already buffered after RDB
         await self._apply_messages(parser.feed(b""))
 

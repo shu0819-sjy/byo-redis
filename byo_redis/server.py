@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Sentinel distinct from Redis null bulk (Python None) for handlers with no client reply.
 _NO_CLIENT_REPLY = object()
 
+
 class RedisServer:
     def __init__(self, config: Config, registry: CommandRegistry | None = None) -> None:
         self.config = config
@@ -121,10 +122,7 @@ class RedisServer:
     @property
     def aof_rewrite_in_progress(self) -> bool:
         """返回当前是否有 AOF 重写任务。"""
-        return (
-            self._aof_rewrite_task is not None
-            and not self._aof_rewrite_task.done()
-        )
+        return self._aof_rewrite_task is not None and not self._aof_rewrite_task.done()
 
     async def start(self) -> None:
         if self._started:
@@ -142,8 +140,7 @@ class RedisServer:
             port=self.config.port,
         )
         addrs = ", ".join(
-            str(server_socket.getsockname())
-            for server_socket in (self._server.sockets or ())
+            str(server_socket.getsockname()) for server_socket in (self._server.sockets or ())
         )
         logger.info(
             "BYO-Redis %s listening on %s (role=%s)",
@@ -166,9 +163,7 @@ class RedisServer:
             )
             self._bg_tasks.append(self._replica.start())
 
-        self._bg_tasks.append(
-            asyncio.create_task(self._active_expire_loop(), name="active-expire")
-        )
+        self._bg_tasks.append(asyncio.create_task(self._active_expire_loop(), name="active-expire"))
         if self.config.rdb_save_seconds > 0:
             self._bg_tasks.append(
                 asyncio.create_task(self._periodic_save_loop(), name="periodic-save")
@@ -287,26 +282,20 @@ class RedisServer:
             while True:
                 timeout = self.config.client_idle_timeout_sec
                 if parser.buffered_size > 0 and partial_since is not None:
-                    remaining = self.partial_timeout_sec - (
-                        time.monotonic() - partial_since
-                    )
+                    remaining = self.partial_timeout_sec - (time.monotonic() - partial_since)
                     if remaining <= 0:
                         raise ProtocolError(
-                            f"incomplete RESP frame timed out after "
-                            f"{self.partial_timeout_sec:.0f}s"
+                            f"incomplete RESP frame timed out after {self.partial_timeout_sec:.0f}s"
                         )
                     timeout = min(timeout, remaining)
                 try:
-                    data = await asyncio.wait_for(
-                        reader.read(65536), timeout=timeout
-                    )
+                    data = await asyncio.wait_for(reader.read(65536), timeout=timeout)
                 except TimeoutError as exc:
                     if parser.buffered_size == 0:
                         logger.info("Client %d idle timeout", conn_id)
                         break
                     raise ProtocolError(
-                        f"incomplete RESP frame timed out after "
-                        f"{self.partial_timeout_sec:.0f}s"
+                        f"incomplete RESP frame timed out after {self.partial_timeout_sec:.0f}s"
                     ) from exc
                 if not data:
                     break
@@ -392,17 +381,13 @@ class RedisServer:
             self._client_count -= 1
             logger.debug("Client %d closed", conn_id)
 
-    async def _hold_replica_connection(
-        self, reader: asyncio.StreamReader, conn_id: int
-    ) -> None:
+    async def _hold_replica_connection(self, reader: asyncio.StreamReader, conn_id: int) -> None:
         try:
             while True:
                 data = await reader.read(65536)
                 if not data:
                     break
-                logger.debug(
-                    "Ignoring %d bytes from replica conn %d", len(data), conn_id
-                )
+                logger.debug("Ignoring %d bytes from replica conn %d", len(data), conn_id)
         except (ConnectionError, OSError):
             pass
 
@@ -418,9 +403,7 @@ class RedisServer:
             elif item is None:
                 argv.append(b"")
             else:
-                raise ProtocolError(
-                    f"command arg must be bulk string, got {type(item)}"
-                )
+                raise ProtocolError(f"command arg must be bulk string, got {type(item)}")
         return argv
 
     async def _execute(
@@ -573,11 +556,7 @@ class RedisServer:
             ("aof-filename", self.config.aof_filename),
         ):
             path = os.path.normpath(filename)
-            if (
-                not filename
-                or os.path.isabs(filename)
-                or path != os.path.basename(path)
-            ):
+            if not filename or os.path.isabs(filename) or path != os.path.basename(path):
                 raise ValueError(f"{name} must be a plain filename")
         host = self.config.host.strip().lower()
         is_loopback = host == "localhost"
@@ -606,9 +585,7 @@ class RedisServer:
         """Start a background BGSAVE task. Returns False if already in progress."""
         if self.bgsave_in_progress:
             return False
-        self._bgsave_task = asyncio.create_task(
-            self._bgsave_worker(), name="bgsave"
-        )
+        self._bgsave_task = asyncio.create_task(self._bgsave_worker(), name="bgsave")
         return True
 
     async def _bgsave_worker(self) -> None:
@@ -649,9 +626,7 @@ class RedisServer:
         """启动 AOF 重写；已有任务运行时返回假。"""
         if self.aof_rewrite_in_progress or not self.config.aof_enabled:
             return False
-        self._aof_rewrite_task = asyncio.create_task(
-            self._aof_rewrite_worker(), name="aof-rewrite"
-        )
+        self._aof_rewrite_task = asyncio.create_task(self._aof_rewrite_worker(), name="aof-rewrite")
         return True
 
     async def _aof_rewrite_worker(self) -> None:

@@ -38,9 +38,7 @@ class RespClient:
         self._writer = None
 
     async def execute(self, *parts: str | bytes) -> object:
-        argv = [
-            p.encode("utf-8") if isinstance(p, str) else p for p in parts
-        ]
+        argv = [p.encode("utf-8") if isinstance(p, str) else p for p in parts]
         assert self._writer is not None and self._reader is not None
         self._writer.write(encode_command(argv))
         await self._writer.drain()

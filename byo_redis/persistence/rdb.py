@@ -130,9 +130,7 @@ def load_rdb_bytes(
 ) -> dict[bytes, KeyEntry]:
     """解析 RDB 字节；输入超过配置上限时在解码前拒绝。"""
     if len(data) > max_file_bytes:
-        raise RdbError(
-            f"RDB size {len(data)} exceeds load limit {max_file_bytes}"
-        )
+        raise RdbError(f"RDB size {len(data)} exceeds load limit {max_file_bytes}")
     if len(data) < 12:
         raise RdbError("RDB too short")
     buf = memoryview(data)
@@ -190,15 +188,11 @@ def load_rdb_bytes(
     return entries
 
 
-def load_rdb(
-    path: Path, *, max_file_bytes: int = 1024 * 1024 * 1024
-) -> dict[bytes, KeyEntry]:
+def load_rdb(path: Path, *, max_file_bytes: int = 1024 * 1024 * 1024) -> dict[bytes, KeyEntry]:
     """从磁盘加载 RDB；读取文件前先校验大小上限。"""
     file_size = path.stat().st_size
     if file_size > max_file_bytes:
-        raise RdbError(
-            f"RDB size {file_size} exceeds load limit {max_file_bytes}"
-        )
+        raise RdbError(f"RDB size {file_size} exceeds load limit {max_file_bytes}")
     data = path.read_bytes()
     return load_rdb_bytes(data, max_file_bytes=max_file_bytes)
 

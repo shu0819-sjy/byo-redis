@@ -137,8 +137,7 @@ async def test_bgrewriteaof_compacts_and_recovers_state(tmp_path: Path) -> None:
         assert await client.execute("EXPIRE", "version", "120") == 1
         before_size = config.aof_path.stat().st_size
         assert (
-            await client.execute("BGREWRITEAOF")
-            == "Background append only file rewriting started"
+            await client.execute("BGREWRITEAOF") == "Background append only file rewriting started"
         )
         assert server._aof_rewrite_task is not None
         await server._aof_rewrite_task

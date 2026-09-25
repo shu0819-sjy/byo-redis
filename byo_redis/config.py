@@ -67,9 +67,7 @@ class Config:
 
 def _parse_replicaof(value: str) -> tuple[str, int]:
     if ":" not in value:
-        raise argparse.ArgumentTypeError(
-            "replicaof must be HOST:PORT, e.g. 127.0.0.1:6379"
-        )
+        raise argparse.ArgumentTypeError("replicaof must be HOST:PORT, e.g. 127.0.0.1:6379")
     host, _, port_s = value.rpartition(":")
     if not host:
         raise argparse.ArgumentTypeError("replicaof host must not be empty")

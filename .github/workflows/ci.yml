@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -28,6 +28,15 @@ jobs:
 
       - name: Byte-compile
         run: python -m compileall -q byo_redis
+
+      - name: Ruff lint
+        run: ruff check byo_redis tests
+
+      - name: Ruff format check
+        run: ruff format --check byo_redis tests
+
+      - name: Type check (hard gate)
+        run: mypy byo_redis
 
       - name: Run tests
         run: python -m pytest -q

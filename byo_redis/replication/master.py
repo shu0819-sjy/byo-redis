@@ -86,9 +86,7 @@ class MasterReplication:
             name=f"replica-writer-{link.connection_id}",
         )
 
-    async def register(
-        self, connection_id: int, writer: asyncio.StreamWriter
-    ) -> ReplicaLink:
+    async def register(self, connection_id: int, writer: asyncio.StreamWriter) -> ReplicaLink:
         """Register a live replica (used when not going through full_resync)."""
         link = ReplicaLink(
             writer=writer,
@@ -125,9 +123,7 @@ class MasterReplication:
             link._drain_task = None
         logger.info("Replica connection %d unregistered", connection_id)
 
-    async def full_resync(
-        self, writer: asyncio.StreamWriter, connection_id: int
-    ) -> None:
+    async def full_resync(self, writer: asyncio.StreamWriter, connection_id: int) -> None:
         """FULLRESYNC with syncing backlog + flush-until-empty live transition.
 
         1. Snapshot store → RDB bytes
@@ -154,9 +150,7 @@ class MasterReplication:
                 snapshot_offset = self.offset
                 entries = self.store.snapshot()
             rdb = await asyncio.to_thread(dump_rdb_entries, entries)
-            header = encode_simple_string(
-                f"FULLRESYNC {self.replid} {snapshot_offset}"
-            )
+            header = encode_simple_string(f"FULLRESYNC {self.replid} {snapshot_offset}")
             bulk_hdr = f"${len(rdb)}\r\n".encode("ascii")
             payload = header + bulk_hdr + rdb
 
@@ -228,10 +222,7 @@ class MasterReplication:
                     dead.append(conn_id)
                     continue
                 if link.state == "syncing":
-                    if (
-                        link.backlog_bytes + len(payload)
-                        > self.backlog_max_bytes
-                    ):
+                    if link.backlog_bytes + len(payload) > self.backlog_max_bytes:
                         logger.error(
                             "Replica %d backlog exceeded %d bytes; disconnecting",
                             conn_id,
@@ -258,15 +249,11 @@ class MasterReplication:
                     link.offset = self.offset
                     link._pending.put_nowait(_DRAIN)
                 except (ConnectionError, OSError, RuntimeError) as exc:
-                    logger.warning(
-                        "Failed to propagate to replica %d: %s", conn_id, exc
-                    )
+                    logger.warning("Failed to propagate to replica %d: %s", conn_id, exc)
                     link.alive = False
                     dead.append(conn_id)
         for conn_id in dead:
-            asyncio.create_task(
-                self.unregister(conn_id), name=f"replica-unreg-{conn_id}"
-            )
+            asyncio.create_task(self.unregister(conn_id), name=f"replica-unreg-{conn_id}")
 
     async def _replica_writer_loop(self, link: ReplicaLink) -> None:
         """Background drain for a live replica transport."""

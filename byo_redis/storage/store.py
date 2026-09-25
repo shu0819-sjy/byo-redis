@@ -135,9 +135,7 @@ class Store:
                 self._last_access.pop(key, None)
                 return
             expire_at_ms = now_ms() + ex_seconds * 1000
-        self._entries[key] = KeyEntry(
-            type=RedisType.STRING, value=value, expire_at_ms=expire_at_ms
-        )
+        self._entries[key] = KeyEntry(type=RedisType.STRING, value=value, expire_at_ms=expire_at_ms)
         self._touch_access(key)
 
     def get_string(self, key: bytes) -> bytes | None:
@@ -242,9 +240,7 @@ class Store:
     def _purge_expired_all_lazy_touch(self) -> None:
         now = now_ms()
         expired = [
-            key
-            for key, entry in self._entries.items()
-            if is_expired(entry.expire_at_ms, now=now)
+            key for key, entry in self._entries.items() if is_expired(entry.expire_at_ms, now=now)
         ]
         for key in expired:
             del self._entries[key]
