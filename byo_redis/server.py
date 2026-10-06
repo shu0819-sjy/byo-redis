@@ -203,7 +203,10 @@ class RedisServer:
 
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), timeout=1.0)
+            except TimeoutError:
+                logger.warning("Timed out while closing the listening socket")
             self._server = None
 
         # 关闭现有连接，确保停止命令不会留下悬挂客户端或副本连接。
@@ -212,12 +215,19 @@ class RedisServer:
             writer.close()
         if writers:
             await asyncio.gather(
-                *(writer.wait_closed() for writer in writers),
+                *(asyncio.wait_for(writer.wait_closed(), timeout=1.0) for writer in writers),
                 return_exceptions=True,
             )
         client_tasks = [task for task in self._client_tasks if not task.done()]
         if client_tasks:
-            await asyncio.gather(*client_tasks, return_exceptions=True)
+            pending = asyncio.gather(*client_tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(pending, timeout=2.0)
+            except TimeoutError:
+                for task in client_tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*client_tasks, return_exceptions=True)
 
         await self.aof.close()
         self._started = False

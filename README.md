@@ -31,10 +31,24 @@ Compatible with `redis-cli` for the supported command set. Designed for correctn
 ```bash
 cd byo-redis
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# POSIX:  source .venv/bin/activate
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# POSIX shells (macOS/Linux): source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+Windows PowerShell setup:
+
+```powershell
+cd byo-redis
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+The native server and test suite are supported on Windows, macOS, and Linux
+with Python 3.11 or newer. `redis-cli` is optional; automated tests use a
+pure-Python RESP client.
 
 This installs the `byo-redis` console script and the `byo_redis` package.
 
