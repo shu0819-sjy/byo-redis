@@ -11,7 +11,7 @@ Requirements: **Python 3.11+**.
 git clone https://github.com/shu0819-sjy/byo-redis.git
 cd byo-redis
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
@@ -35,7 +35,8 @@ python -m coverage run -m pytest -q
 python -m coverage report --fail-under=75
 ```
 
-CI runs the same gates on Python 3.11 and 3.12 (coverage fail-under **75**). Fix
+CI runs the same gates on Windows, macOS, and Linux with Python 3.11 and 3.12
+(coverage fail-under **75**). Fix
 failures locally before opening a PR — do not widen `mypy` `strict` settings to
 silence new errors.
 
